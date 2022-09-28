@@ -229,10 +229,10 @@ function trabis_GetNameservers($params, $detail = null)
     foreach($json["nameservers"] as $key => $nameServer)
     {
         $key++;
-        if($nameServer["nsType"] == "other")
-        {
+        //if($nameServer["nsType"] == "other")
+        //{
             $values["ns" . $key] = $nameServer["nsName"];
-        }
+        //}
     }
     if($detail == '1'){
         return $json;
