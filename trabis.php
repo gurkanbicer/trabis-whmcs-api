@@ -1,18 +1,63 @@
-﻿<?php 
+<?php 
 //Netdirekt-Trabis WHMCS API v0.1
-define('api_key', '');
+
+use libphonenumber\PhoneNumberUtil;
+use libphonenumber\PhoneNumberFormat;
+
+require_once 'vendor/autoload.php';
+
+define('api_key', ''); // https://trabis.netdirekt.com.tr panelinizden key alınız.
+define('customfield_kurumsal', 'customfields5'); // WHMCS'e göre düzenleyiniz.
+define('customfield_vergidairesi', 'customfields2'); // WHMCS'e göre düzenleyiniz.
+define('customfield_vergino', 'customfields3'); // WHMCS'e göre düzenleyiniz.
+define('customfield_tcno', 'customfields4'); // WHMCS'e göre düzenleyiniz.
+define('dns_ns1', 'izm.netdirekt.com.tr'); // Firmanıza göre düzenleyiniz.
+define('dns_ns2', 'ist.netdirekt.com.tr'); // Firmanıza göre düzenleyiniz.
+define('dns_ns3', 'frk.netdirekt.com.tr'); // Firmanıza göre düzenleyiniz.
+define('dns_ns4', 'ams.netdirekt.com.tr'); // Firmanıza göre düzenleyiniz.
+define('dns_ns5', null);
+
+// Şehir alanı Türkçe karakter içerebildiğinden strtoupper fonksiyonunda sorun yaşanıyor.
+// Bu nedenle düzeltme için city_like_helper fonksiyonu eklendi.
+function city_like_helper($str) {
+    return strtoupper(str_ireplace(
+        ["Ç","İ","I","Ğ","Ö","Ş","Ü","ç","i","ı","ğ","ö","ş","ü"], 
+        ["C","I","I","G","O","S","U","C","I","I","G","O","S","U"], 
+        $str
+    ));
+}
+
+// Trabisin telefon formatı 90-555-444-3322 şeklinde ve telefon formatları çok çeşitli.
+// Bu nedenle önce RFC 3966 standartına, bu formattan da Trabise uygun hale getirildi.
+function phone_format_helper($phone, $countryCode) {
+    $phoneNumberUtil = PhoneNumberUtil::getInstance();
+    $phoneNumberObject = $phoneNumberUtil->parse($phone, $countryCode);
+    $phoneRFC3966 = $phoneNumberUtil->format($phoneNumberObject, PhoneNumberFormat::RFC3966);
+
+    $phoneClean = str_ireplace('tel:+', '', $phoneRFC3966);
+    $phoneCleanExp = explode('-', $phoneClean);
+
+    $newPhoneFormat = $phoneCleanExp[0] . '-' . $phoneCleanExp[1] . '-' . $phoneCleanExp[2] . '-';
+
+    unset($phoneCleanExp[0]);
+    unset($phoneCleanExp[1]);
+    unset($phoneCleanExp[2]);
+
+    $newPhoneFormat .= implode('', $phoneCleanExp);
+    return $newPhoneFormat;
+}
 
 function trabis_RegisterDomain($params) {
-  
-    $phone = $params['phonenumber'];
-    $phoneLength = strlen($phone);
+    $phone = phone_format_helper($params['phonenumber'], $params['country']);
+    
+    /*$phoneLength = strlen($phone);
     if($phoneLength == '11' && substr($phone,0,1) == '0'){
         $phone = '9'.$phone;
     }elseif($phoneLength == '13' && substr($phone,0,2) == '+9'){
         $phone = substr($phone, 1);
     }
-    $fixedPhone = substr($phone,0,2).'-'.substr($phone,2,3).'-'.substr($phone,5,7);
-
+    $fixedPhone = substr($phone,0,2).'-'.substr($phone,2,3).'-'.substr($phone,5,7);*/
+    
     $nameserver1 = $params["ns1"];
     $nameserver2 = $params["ns2"];
     $nameserver3 = $params["ns3"];
@@ -20,11 +65,11 @@ function trabis_RegisterDomain($params) {
     $nameserver5 = $params["ns5"];
 
     if(($nameserver1 == "" || $nameserver2 == "")) {      
-        $nameserver1 = "izm.netdirekt.com.tr";
-        $nameserver2 = "ist.netdirekt.com.tr";
-        $nameserver3 = "frk.netdirekt.com.tr";
-        $nameserver4 = "ams.netdirekt.com.tr";
-        $nameserver5 = null;
+        $nameserver1 = dns_ns1;
+        $nameserver2 = dns_ns2;
+        $nameserver3 = dns_ns3;
+        $nameserver4 = dns_ns4;
+        $nameserver5 = dns_ns5;
     }
 
     $post = array(
@@ -35,7 +80,8 @@ function trabis_RegisterDomain($params) {
         'countryId' => '215', //Türkiye
         'address1' => $params["address1"],
         'address2' => $params["address2"],
-        'phone' => $fixedPhone,
+        //'phone' => $fixedPhone,
+        'phone' => $phone,
         'fax' => null,
         'zipCode' => $params["postcode"],
         'nsName' => array(
@@ -47,20 +93,26 @@ function trabis_RegisterDomain($params) {
         )
     );
 
-    $hizmet_turu = $params['customfields5'];
+    
+    //$hizmet_turu = $params['customfields5'];
+    $hizmet_turu = ($params[customfield_kurumsal] == "on") ? "Kurumsal" : "Bireysel"; 
     if($hizmet_turu == 'Bireysel'){
         $type = '1';
         $post['name'] = "{$params["firstname"]} {$params["lastname"]}";
-        $post['citizenId'] = $params["customfields4"];
-    } elseif ($hizmet_turu == 'Kurumsal'){
+        //$post['citizenId'] = $params["customfields4"];
+        $post['citizenId'] = $params[customfield_tcno];
+    } elseif ($hizmet_turu == 'Kurumsal') {
         $type = '2';
         $client = new WHMCS\Client($params["userid"]);
         $details = $client->getDetails($contactid);
         $organization = $details['companyname'];
         $post['organization'] = $organization;
-        $post['taxOffice'] = $params["customfields2"];
-        $post['taxNumber'] = $params["customfields3"];
+        //$post['taxOffice'] = $params["customfields2"];
+        //$post['taxNumber'] = $params["customfields3"];
+        $post['taxOffice'] = $params[customfield_vergidairesi];
+        $post['taxNumber'] = $params[customfield_vergino];
     }
+    
     $post['type'] = $type;
 
     $get_city = [
@@ -76,10 +128,12 @@ function trabis_RegisterDomain($params) {
     $cities = json_decode($result, true);
     
     foreach($cities['cities'] as $city){
-        if($params['city'] == $city['like']){
+        //if($params['city'] == $city['like']){
+        if(city_like_helper($params['city']) == $city['like']){
             $cityId = $city['id'];
         }
     }
+    
     $post['cityId'] = $cityId;
 
     $ch = curl_init();
@@ -255,12 +309,22 @@ function trabis_DeleteNameserver($params)
         'domain' => $params["domainname"],
         'name' => $params["nameserver"],
         'default_ns' => array(
-            array("nsName" => "izm.netdirekt.com.tr", "nsIP" => null),
-            array("nsName" => "ist.ntdirekt.com.tr", "nsIP" => null),
-            array("nsName" => "frk.ntdirekt.com.tr", "nsIP" => null),
-            array("nsName" => "ams.ntdirekt.com.tr", "nsIP" => null)
-            ),
-        );
+            array("nsName" => dns_ns1, "nsIP" => null),
+            array("nsName" => dns_ns2, "nsIP" => null)
+        ),
+    );
+    
+    if (!is_null(dns_ns3)) {
+        $post['default_ns'][] = array("nsName" => dns_ns3, "nsIP" => null);
+    }
+    
+    if (!is_null(dns_ns4)) {
+        $post['default_ns'][] = array("nsName" => dns_ns4, "nsIP" => null);
+    }
+    
+    if (!is_null(dns_ns5)) {
+        $post['default_ns'][] = array("nsName" => dns_ns5, "nsIP" => null);
+    }
 
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, "https://trabis.netdirekt.com.tr/api/rm_child_ns_v2");
